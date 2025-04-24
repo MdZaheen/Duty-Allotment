@@ -9,17 +9,15 @@ interface ProfessorDuty {
     _id: string;
     name: string;
     designation: string;
-  };
+  } | null;
   room: {
     _id: string;
     number: string;
-  };
+  } | null;
   date: string;
   shift: string;
-  schedule: {
-    startTime: string;
-    endTime: string;
-  };
+  startTime?: string;
+  endTime?: string;
 }
 
 export default function ProfessorDutyReport() {
@@ -28,50 +26,135 @@ export default function ProfessorDutyReport() {
   const [error, setError] = useState<string | null>(null);
   const [groupedDuties, setGroupedDuties] = useState<Record<string, ProfessorDuty[]>>({});
   const [professors, setProfessors] = useState<any[]>([]);
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
+  const [rawDuties, setRawDuties] = useState<any[]>([]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Fetch all professors
-        const professorsRes = await fetch('/api/professors');
-        const professorsData = await professorsRes.json();
-        setProfessors(professorsData);
-        
-        // Fetch all duties with populated data
-        const res = await fetch('/api/professor-duties');
-        const data = await res.json();
-        
-        if (Array.isArray(data)) {
-          setDuties(data);
-          
-          // Group duties by date and shift for easy display
-          const grouped: Record<string, ProfessorDuty[]> = {};
-          data.forEach((duty: ProfessorDuty) => {
-            const key = `${duty.date}-${duty.shift}`;
-            if (!grouped[key]) {
-              grouped[key] = [];
-            }
-            grouped[key].push(duty);
-          });
-          
-          setGroupedDuties(grouped);
-        }
-      } catch (err) {
-        setError('Failed to load professor duties');
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
     fetchData();
   }, []);
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Fetch all professors
+      console.log('Fetching professors data...');
+      const professorsRes = await fetch('/api/professors');
+      const professorsData = await professorsRes.json();
+      setProfessors(professorsData);
+      console.log(`Fetched ${professorsData.length} professors`);
+      
+      // Fetch all duties with populated data
+      console.log('Fetching professor duties...');
+      const res = await fetch('/api/professor-duties');
+      const data = await res.json();
+      console.log('Professor duties response:', data);
+      
+      if (Array.isArray(data)) {
+        console.log(`Got ${data.length} duties from API`);
+        
+        // Map professor and room IDs to their objects if needed
+        const validDuties = data.map(duty => {
+          // Check if professor is not populated
+          if (duty.professor && typeof duty.professor === 'string') {
+            // Find professor by ID
+            const professor = professorsData.find((p: any) => p._id === duty.professor);
+            if (professor) {
+              duty.professor = professor;
+            } else {
+              console.warn(`Professor ID ${duty.professor} not found`);
+            }
+          }
+          
+          return duty;
+        }).filter(duty => 
+          duty.professor && 
+          duty.room && 
+          typeof duty.professor !== 'string' && 
+          typeof duty.room !== 'string'
+        );
+        
+        if (validDuties.length < data.length) {
+          console.warn(`Filtered out ${data.length - validDuties.length} invalid duties`);
+          if (data.length > 0) {
+            console.log('Sample duty:', JSON.stringify(data[0], null, 2));
+          }
+        }
+        
+        setDuties(validDuties);
+        
+        // Group duties by date and shift for easy display
+        const grouped: Record<string, ProfessorDuty[]> = {};
+        validDuties.forEach((duty: ProfessorDuty) => {
+          const key = `${duty.date}-${duty.shift}`;
+          if (!grouped[key]) {
+            grouped[key] = [];
+          }
+          grouped[key].push(duty);
+        });
+        
+        setGroupedDuties(grouped);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load professor duties';
+      setError(errorMessage);
+      console.error('Error fetching data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleExport = () => {
     // Redirect to the export API endpoint
     window.location.href = '/api/export-professor-duty';
+  };
+
+  const handleReset = async () => {
+    if (!confirm('Are you sure you want to reset all professor duties? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      setIsResetting(true);
+      setResetMessage(null);
+      setError(null);
+      
+      const response = await fetch('/api/reset-professor-duties', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reset professor duties');
+      }
+      
+      setResetMessage('All professor duties have been reset successfully.');
+      
+      // Refetch data
+      fetchData();
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleDebug = async () => {
+    try {
+      const res = await fetch('/api/professor-duties');
+      const data = await res.json();
+      setRawDuties(data);
+      setShowDebugInfo(true);
+    } catch (err) {
+      console.error('Debug error:', err);
+    }
   };
 
   return (
@@ -85,6 +168,21 @@ export default function ProfessorDutyReport() {
         </div>
         
         <div className="flex space-x-3">
+          <button
+            onClick={handleReset}
+            disabled={isResetting}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400"
+          >
+            {isResetting ? 'Resetting...' : 'Reset Duties'}
+          </button>
+          
+          <button
+            onClick={handleDebug}
+            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+          >
+            Debug Data
+          </button>
+          
           <button
             onClick={handleExport}
             className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
@@ -101,17 +199,39 @@ export default function ProfessorDutyReport() {
         </div>
       </div>
 
+      {error && (
+        <div className="bg-red-50 p-4 rounded-md text-red-600">
+          <p className="font-medium">Error</p>
+          <p>{error}</p>
+        </div>
+      )}
+
+      {resetMessage && (
+        <div className="bg-green-50 p-4 rounded-md text-green-600">
+          <p className="font-medium">Success</p>
+          <p>{resetMessage}</p>
+        </div>
+      )}
+
+      {showDebugInfo && (
+        <div className="bg-gray-50 p-4 rounded-md border border-gray-300">
+          <div className="flex justify-between mb-2">
+            <h3 className="font-medium">Debug Information</h3>
+            <button onClick={() => setShowDebugInfo(false)} className="text-gray-600">Close</button>
+          </div>
+          <p>Raw Duties Count: {rawDuties.length}</p>
+          <pre className="bg-gray-100 p-3 text-xs overflow-auto max-h-96">
+            {JSON.stringify(rawDuties, null, 2)}
+          </pre>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex justify-center p-12">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
             <p className="mt-3 text-gray-600">Loading duties...</p>
           </div>
-        </div>
-      ) : error ? (
-        <div className="bg-red-50 p-4 rounded-md text-red-600">
-          <p className="font-medium">Error</p>
-          <p>{error}</p>
         </div>
       ) : Object.keys(groupedDuties).length === 0 ? (
         <div className="bg-white rounded-lg shadow p-6 text-center">
@@ -175,22 +295,24 @@ export default function ProfessorDutyReport() {
                   {duties.map((duty) => (
                     <tr key={duty._id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(duty.date).toLocaleDateString()}
+                        {duty.date ? new Date(duty.date).toLocaleDateString() : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {duty.shift}
+                        {duty.shift || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {duty.schedule.startTime} - {duty.schedule.endTime}
+                        {duty.startTime && duty.endTime 
+                          ? `${duty.startTime} - ${duty.endTime}` 
+                          : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {duty.room.number}
+                        {duty.room && duty.room.number ? duty.room.number : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {duty.professor.name}
+                        {duty.professor && duty.professor.name ? duty.professor.name : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {duty.professor.designation}
+                        {duty.professor && duty.professor.designation ? duty.professor.designation : 'N/A'}
                       </td>
                     </tr>
                   ))}

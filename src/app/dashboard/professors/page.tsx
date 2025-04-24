@@ -23,6 +23,8 @@ export default function ProfessorsPage() {
     email: '',
     department: ''
   });
+  const [isAllocating, setIsAllocating] = useState(false);
+  const [allocateMessage, setAllocateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetchProfessors();
@@ -31,15 +33,29 @@ export default function ProfessorsPage() {
   const fetchProfessors = async () => {
     try {
       setIsLoading(true);
+      setError(null);
+      console.log('Fetching professors from API');
+      
       const response = await fetch('/api/professors');
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server responded with status: ${response.status}`);
+      }
+      
       const data = await response.json();
+      console.log('Received professors data:', data);
       
       if (Array.isArray(data)) {
         setProfessors(data);
+      } else {
+        console.error('Expected array but got:', data);
+        throw new Error('Invalid data format received from server');
       }
     } catch (err) {
-      setError('Failed to load professors');
-      console.error(err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load professors';
+      setError(errorMessage);
+      console.error('Error fetching professors:', err);
     } finally {
       setIsLoading(false);
     }
@@ -105,6 +121,35 @@ export default function ProfessorsPage() {
     }
   };
 
+  const handleAllocateProfessors = async () => {
+    try {
+      setIsAllocating(true);
+      setAllocateMessage(null);
+      setError(null);
+      
+      const response = await fetch('/api/allocate-professors', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to allocate professors');
+      }
+      
+      setAllocateMessage('Professors allocated successfully!');
+      fetchProfessors(); // Refresh to show updated duty counts
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+    } finally {
+      setIsAllocating(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -115,18 +160,41 @@ export default function ProfessorsPage() {
           </p>
         </div>
         
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-        >
-          {showAddForm ? 'Cancel' : 'Add Professor'}
-        </button>
+        <div className="flex space-x-3">
+          <button
+            onClick={handleAllocateProfessors}
+            disabled={isAllocating || professors.length === 0}
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:bg-gray-400"
+          >
+            {isAllocating ? 'Allocating...' : 'Allocate Professors'}
+          </button>
+          
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            {showAddForm ? 'Cancel' : 'Add Professor'}
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 p-4 rounded-md text-red-600">
+        <div className="bg-red-50 p-4 rounded-md text-red-600 border border-red-200">
           <p className="font-medium">Error</p>
           <p>{error}</p>
+          <button 
+            onClick={fetchProfessors} 
+            className="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+          >
+            Try Again
+          </button>
+        </div>
+      )}
+
+      {allocateMessage && (
+        <div className="bg-green-50 p-4 rounded-md text-green-600">
+          <p className="font-medium">Success</p>
+          <p>{allocateMessage}</p>
         </div>
       )}
 
@@ -210,18 +278,16 @@ export default function ProfessorsPage() {
       )}
 
       {isLoading ? (
-        <div className="flex justify-center p-12">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-3 text-gray-600">Loading professors...</p>
-          </div>
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+          <p className="text-gray-600">Loading professors...</p>
         </div>
-      ) : professors.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-6 text-center">
-          <p className="text-gray-700 mb-4">No professors have been added yet.</p>
+      ) : professors.length === 0 && !error ? (
+        <div className="bg-white rounded-lg shadow p-8 text-center">
+          <p className="text-gray-600 mb-4">No professors found in the database.</p>
           <button
             onClick={() => setShowAddForm(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none"
           >
             Add Your First Professor
           </button>

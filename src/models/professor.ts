@@ -23,4 +23,8 @@ const ProfessorSchema = new mongoose.Schema<IProfessor>({
 // Add index for query optimization
 ProfessorSchema.index({ designation: 1, name: 1 });
 
-export default mongoose.models.Professor || mongoose.model<IProfessor>('Professor', ProfessorSchema); 
+// Check if the model already exists to prevent overwriting during hot reloads
+const Professor = mongoose.models.Professor as mongoose.Model<IProfessor> || 
+  mongoose.model<IProfessor>('Professor', ProfessorSchema);
+
+export default Professor; 

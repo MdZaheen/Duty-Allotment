@@ -17,7 +17,11 @@ const RoomSchema = new mongoose.Schema<IRoom>({
 }, { timestamps: true });
 
 // Add index for query optimization
-RoomSchema.index({ number: 1 });
+// Don't add duplicate index for number since it's already unique: true above
 RoomSchema.index({ capacity: -1 });
 
-export default mongoose.models.Room || mongoose.model<IRoom>('Room', RoomSchema); 
+// Check if the model already exists to prevent overwriting during hot reloads
+const Room = mongoose.models.Room as mongoose.Model<IRoom> || 
+  mongoose.model<IRoom>('Room', RoomSchema);
+
+export default Room; 

@@ -33,42 +33,66 @@ export async function exportProfessorDuty() {
     fgColor: { argb: 'FFE0E0E0' }
   };
   
-  // Get all duties with populated fields
-  const duties = await ProfessorDuty.find()
-    .populate('professor')
-    .populate('room')
-    .populate('schedule')
-    .sort({ date: 1, shift: 1 })
-    .lean();
-  
-  // Add each duty as a row
-  duties.forEach(duty => {
-    worksheet.addRow({
-      professorName: duty.professor.name,
-      designation: duty.professor.designation,
-      date: format(new Date(duty.date), 'dd-MM-yyyy'),
-      shift: duty.shift,
-      roomNumber: duty.room.number,
-      startTime: duty.schedule.startTime,
-      endTime: duty.schedule.endTime
+  try {
+    // Get all duties with populated fields - no more schedule field
+    const duties = await ProfessorDuty.find()
+      .populate('professor')
+      .populate('room')
+      .sort({ date: 1, shift: 1 })
+      .lean();
+    
+    console.log(`Exporting ${duties.length} professor duties`);
+    
+    if (duties.length === 0) {
+      // Add a default "no data" row
+      worksheet.addRow({
+        professorName: 'No duties found',
+        designation: '',
+        date: '',
+        shift: '',
+        roomNumber: '',
+        startTime: '',
+        endTime: ''
+      });
+    } else {
+      // Add each duty as a row
+      duties.forEach(duty => {
+        if (!duty.professor || !duty.room) {
+          console.warn('Skipping duty with missing professor or room:', duty._id);
+          return;
+        }
+        
+        worksheet.addRow({
+          professorName: duty.professor.name,
+          designation: duty.professor.designation,
+          date: format(new Date(duty.date), 'dd-MM-yyyy'),
+          shift: duty.shift,
+          roomNumber: duty.room.number,
+          startTime: duty.startTime || 'N/A',
+          endTime: duty.endTime || 'N/A'
+        });
+      });
+    }
+    
+    // Configure borders
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
     });
-  });
-  
-  // Configure borders
-  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    row.eachCell({ includeEmpty: false }, (cell) => {
-      cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' }
-      };
-    });
-  });
-  
-  // Create a buffer
-  const buffer = await workbook.xlsx.writeBuffer();
-  return buffer;
+    
+    // Create a buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    return buffer;
+  } catch (error) {
+    console.error('Error generating professor duty Excel file:', error);
+    throw error;
+  }
 }
 
 /**

@@ -20,6 +20,7 @@ interface AllocationResult {
 export async function allocateProfessors(): Promise<AllocationResult> {
   try {
     await dbConnect();
+    console.log('Starting professor allocation process...');
     
     // Get all active professors sorted by designation
     const professors = await Professor.find().sort({ 
@@ -27,12 +28,15 @@ export async function allocateProfessors(): Promise<AllocationResult> {
       dutyCount: 1 // Those with fewer duties get priority
     }).lean();
     
+    console.log(`Found ${professors.length} professors`);
+    
     if (professors.length === 0) {
       return { success: false, error: 'No professors available for allocation' };
     }
     
     // Get all active rooms
     const rooms = await Room.find({ isActive: true }).lean();
+    console.log(`Found ${rooms.length} active rooms`);
     
     if (rooms.length === 0) {
       return { success: false, error: 'No active rooms available for allocation' };
@@ -40,43 +44,54 @@ export async function allocateProfessors(): Promise<AllocationResult> {
     
     // Get all schedules (exam dates & shifts)
     const schedules = await Schedule.find({ isActive: true }).sort({ date: 1 }).lean();
+    console.log(`Found ${schedules.length} active schedules`);
     
     if (schedules.length === 0) {
       return { success: false, error: 'No exam schedules found for allocation' };
     }
     
-    // Find the last allocated professor (for continuing round robin)
-    const lastAllocation = await ProfessorDuty.findOne()
-      .sort({ createdAt: -1 })
-      .populate('professor')
-      .lean();
-    // Find index of last allocated professor (or start at 0)
-    let lastIndex = 0;
-    if (lastAllocation && 
-        typeof lastAllocation === 'object' && 
-        'professor' in lastAllocation && 
-        lastAllocation.professor) {
-      const professorId = lastAllocation.professor._id;
-      if (professorId) {
-        lastIndex = professors.findIndex(p => 
-          p._id && p._id.toString() === professorId.toString()
-        );
-        if (lastIndex >= 0) lastIndex = (lastIndex + 1) % professors.length;
-      }
+    // Clear existing duties before allocation
+    await ProfessorDuty.deleteMany({});
+    console.log('Cleared existing professor duties');
+    
+    // Reset all professor duty counts to zero
+    await Professor.updateMany({}, { dutyCount: 0 });
+    console.log('Reset all professor duty counts to zero');
+    
+    // Verify that the model does not require schedule field
+    try {
+      // Test the model with a sample duty without schedule
+      const testDuty = new ProfessorDuty({
+        professor: professors[0]._id,
+        room: rooms[0]._id,
+        date: new Date(),
+        shift: 'Morning',
+        startTime: '09:00',
+        endTime: '12:00'
+      });
+      
+      // Validate the model
+      await testDuty.validate();
+      console.log('Model validation successful - proceeding with allocation');
+      
+      // Remove test duty
+      await ProfessorDuty.deleteOne({ _id: testDuty._id });
+    } catch (validationError) {
+      console.error('Model validation failed:', validationError);
+      return { 
+        success: false, 
+        error: 'The ProfessorDuty model is not configured correctly. Please check your schema.'
+      };
     }
+    
+    // Find the last allocated professor (for continuing round robin)
+    let lastIndex = 0;
     
     // Start allocation
     const allocations = [];
     
     for (const schedule of schedules) {
-      // Check if this schedule already has allocations
-      const existingAllocations = await ProfessorDuty.find({
-        schedule: schedule._id
-      }).lean();
-      
-      if (existingAllocations.length > 0) {
-        continue; // Skip if already allocated
-      }
+      console.log(`Allocating for schedule: ${schedule.date} - ${schedule.shift}`);
       
       // Allocate one professor per room for this schedule
       for (const room of rooms) {
@@ -87,31 +102,46 @@ export async function allocateProfessors(): Promise<AllocationResult> {
         const professorIndex = lastIndex % professors.length;
         const professor = professors[professorIndex];
         
-        // Create the duty allocation
+        // Create the duty allocation without schedule reference
         const duty = {
           professor: professor._id,
           room: room._id,
-          schedule: schedule._id,
           date: schedule.date,
-          shift: schedule.shift
+          shift: schedule.shift,
+          startTime: schedule.startTime,
+          endTime: schedule.endTime
         };
         
         allocations.push(duty);
-        
-        // Update professor duty count
-        await Professor.findByIdAndUpdate(
-          professor._id,
-          { $inc: { dutyCount: 1 } }
-        );
         
         // Move to next professor in rotation
         lastIndex = (lastIndex + 1) % professors.length;
       }
     }
     
+    console.log(`Created ${allocations.length} duty allocations`);
+    
     // Save all allocations to database
     if (allocations.length > 0) {
-      await ProfessorDuty.insertMany(allocations);
+      console.log('Saving allocations to database...');
+      try {
+        const result = await ProfessorDuty.insertMany(allocations, { ordered: false });
+        console.log(`Successfully saved ${result.length} allocations`);
+      
+        // Update professor duty counts
+        for (const duty of allocations) {
+          await Professor.findByIdAndUpdate(
+            duty.professor,
+            { $inc: { dutyCount: 1 } }
+          );
+        }
+      } catch (insertError) {
+        console.error('Error inserting duties:', insertError);
+        return { 
+          success: false, 
+          error: insertError instanceof Error ? insertError.message : 'Error saving duties'
+        };
+      }
     }
     
     return { 

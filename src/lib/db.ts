@@ -21,10 +21,12 @@ async function dbConnect() {
   const cached = globalWithMongoose.mongoose;
   
   if (!cached) {
+    console.error('Failed to access global mongoose instance');
     throw new Error('Failed to access global mongoose instance');
   }
 
   if (cached.conn) {
+    console.log('Using existing database connection');
     return cached.conn;
   }
 
@@ -33,17 +35,26 @@ async function dbConnect() {
       bufferCommands: false,
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts);
+    console.log('Creating new database connection to:', MONGODB_URI);
+    cached.promise = mongoose.connect(MONGODB_URI, opts)
+      .then((mongoose) => {
+        console.log('Database connected successfully');
+        return mongoose;
+      })
+      .catch((error) => {
+        console.error('Database connection error:', error);
+        throw error;
+      });
   }
   
   try {
     cached.conn = await cached.promise;
+    return cached.conn;
   } catch (error) {
+    console.error('Failed to establish database connection:', error);
     cached.promise = null;
     throw error;
   }
-  
-  return cached.conn;
 }
 
 export default dbConnect;

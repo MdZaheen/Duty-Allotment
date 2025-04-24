@@ -25,4 +25,8 @@ const ScheduleSchema = new mongoose.Schema<ISchedule>({
 // Add index for query optimization
 ScheduleSchema.index({ date: 1, shift: 1 }, { unique: true });
 
-export default mongoose.models.Schedule || mongoose.model<ISchedule>('Schedule', ScheduleSchema); 
+// Check if the model already exists to prevent overwriting during hot reloads
+const Schedule = mongoose.models.Schedule as mongoose.Model<ISchedule> || 
+  mongoose.model<ISchedule>('Schedule', ScheduleSchema);
+
+export default Schedule; 

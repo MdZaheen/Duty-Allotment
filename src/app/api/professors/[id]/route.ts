@@ -13,7 +13,8 @@ export async function GET(req: NextRequest, { params }: Props) {
   try {
     await dbConnect();
     
-    const professor = await Professor.findById(params.id).lean();
+    const id = params.id;
+    const professor = await Professor.findById(id).lean();
     
     if (!professor) {
       return NextResponse.json(
@@ -37,9 +38,10 @@ export async function PUT(req: NextRequest, { params }: Props) {
   try {
     await dbConnect();
     
+    const id = params.id;
     const body = await req.json();
     const professor = await Professor.findByIdAndUpdate(
-      params.id, 
+      id, 
       body,
       { new: true, runValidators: true }
     );
@@ -66,7 +68,8 @@ export async function DELETE(req: NextRequest, { params }: Props) {
   try {
     await dbConnect();
     
-    const professor = await Professor.findByIdAndDelete(params.id);
+    const id = params.id;
+    const professor = await Professor.findByIdAndDelete(id);
     
     if (!professor) {
       return NextResponse.json(
