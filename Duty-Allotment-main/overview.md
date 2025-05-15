@@ -511,4 +511,6 @@ The CIE Room Allocation System provides a comprehensive solution for educational
 
 The recent enhancements, particularly in email validation and UI improvements, have further strengthened the application's capabilities. The system's modular architecture allows for easy extension and customization to meet specific institutional requirements.
 
-As the system continues to evolve, the focus remains on improving user experience, expanding functionality, and ensuring reliability for critical examination management tasks. 
+As the system continues to evolve, the focus remains on improving user experience, expanding functionality, and ensuring reliability for critical examination management tasks.
+
+ahs
